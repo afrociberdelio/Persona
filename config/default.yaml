@@ -1,0 +1,59 @@
+# Persona - configuracao padrao
+# Valores pensados para o alvo de producao (servidor com RTX 3060 12GB).
+# Para desenvolvimento em hardware menor, sobrescreva via config/local.yaml
+# (gitignored) ou variaveis de ambiente PERSONA_*.
+
+audio:
+  input_device: null # null = dispositivo padrao do sistema
+  output_device: null
+  sample_rate: 16000
+  frame_ms: 32 # ~512 amostras @16kHz -- tamanho de chunk recomendado pelo Silero VAD
+
+vad:
+  model: silero_vad
+  threshold: 0.5
+  min_speech_ms: 200 # fala mais curta que isso e ignorada (ruido)
+  end_silence_ms: 600 # silencio necessario para considerar fim de fala
+  hangover_ms: 150 # tolerancia extra antes de fechar o segmento
+
+stt:
+  engine: faster_whisper
+  model_size: large-v3-turbo
+  device: cuda
+  compute_type: int8_float16
+  language: pt
+  long_utterance_chunk_s: 20 # emite transcript parcial se a fala passar disso
+  long_utterance_overlap_s: 2.5
+
+llm:
+  base_url: http://127.0.0.1:8080
+  model_name: qwen3-8b-instruct-q4_k_m
+  context_size: 6144
+  parallel_slots: 2 # 1 para conversa ao vivo, 1 reservado para consolidacao de memoria
+  max_tokens_per_turn: 512
+  temperature: 0.7
+  request_timeout_s: 30
+
+tts:
+  engine: kokoro_onnx
+  model_path: models/kokoro-v1.0.onnx
+  voices_path: models/voices-v1.0.bin
+  voice: pf_dora # voz feminina PT/multilingue disponivel no kokoro-onnx; trocar conforme teste
+  device: cuda
+  speed: 1.0
+
+memory:
+  short_term_max_turns: 12
+  short_term_token_budget: 2000
+  episodic_top_k: 4
+  idle_consolidation_delay_s: 8
+  sqlite_path: data/profile.db
+  lancedb_path: data/episodic.lance
+  embedder_model: sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2
+
+tools:
+  mcp_servers: [] # populado nas fases futuras
+
+logging:
+  level: INFO
+  dir: data/logs

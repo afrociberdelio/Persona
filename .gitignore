@@ -1,0 +1,17 @@
+# Python-generated files
+__pycache__/
+.pytest_cache/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+
+# Virtual environments
+.venv
+
+# Persona: modelos e dados locais (grandes, especificos da maquina)
+models/
+data/
+config/local.yaml
+
