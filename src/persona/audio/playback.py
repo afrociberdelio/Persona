@@ -80,7 +80,12 @@ class AudioPlayback:
             if turn_id != self._current_turn_id:
                 logger.debug("Descartando chunk de audio de turno obsoleto %s", turn_id)
                 return
-            self._buffer.append(np.asarray(pcm, dtype=np.float32))
+            # .reshape(-1) e defensivo: um array com dimensao extra (ex:
+            # shape (1, N) em vez de (N,), caso de alguns exports ONNX do
+            # Kokoro) faz `len(chunk)` no callback de audio contar a
+            # dimensao errada e corrompe o preenchimento do buffer -- ver
+            # docs/TROUBLESHOOTING.md.
+            self._buffer.append(np.asarray(pcm, dtype=np.float32).reshape(-1))
 
     def mark_no_more_chunks(self, turn_id: str) -> None:
         """LLM+TTS sinalizaram que nao ha mais sentencas para este turno."""

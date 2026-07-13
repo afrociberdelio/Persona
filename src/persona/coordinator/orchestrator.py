@@ -136,11 +136,20 @@ class DialogueOrchestrator:
         old_state = self._fsm.state
         transition = self._fsm.handle(event)
 
+        event_name = event if isinstance(event, str) else type(event).__name__
+        logger.info(
+            "FSM: %s + %s -> %s (efeitos=%s)",
+            old_state.name,
+            event_name,
+            transition.new_state.name,
+            [e.name for e in transition.side_effects],
+        )
+
         self._bus.publish(
             TurnStateChanged(
                 old_state=old_state.name,
                 new_state=transition.new_state.name,
-                reason=event if isinstance(event, str) else type(event).__name__,
+                reason=event_name,
             )
         )
         if transition.is_barge_in:
@@ -168,6 +177,13 @@ class DialogueOrchestrator:
 
         elif effect is SideEffect.PLAY_CHUNK:
             assert isinstance(event, TTSAudioChunkReady)
+            duration_s = len(event.pcm) / event.sample_rate if event.sample_rate else 0.0
+            logger.info(
+                "Turno %s sentenca %d: audio pronto (%.2fs) -> playback",
+                event.turn_id,
+                event.sentence_id,
+                duration_s,
+            )
             self._playback.enqueue(event.pcm, event.turn_id)
 
         elif effect is SideEffect.STOP_PLAYBACK:
@@ -230,11 +246,13 @@ class DialogueOrchestrator:
                 full_text += token
                 for sentence in chunker.feed(token):
                     sentence_id += 1
+                    logger.info("Turno %s sentenca %d -> TTS: %r", turn_id, sentence_id, sentence)
                     self._synth_queue.submit(turn_id, sentence_id, sentence, self._on_tts_chunk_ready)
 
             remainder = chunker.flush()
             if remainder:
                 sentence_id += 1
+                logger.info("Turno %s sentenca %d (residual) -> TTS: %r", turn_id, sentence_id, remainder)
                 self._synth_queue.submit(turn_id, sentence_id, remainder, self._on_tts_chunk_ready)
 
         except asyncio.CancelledError:
@@ -242,11 +260,30 @@ class DialogueOrchestrator:
             raise
 
         timer.mark("llm_done")
+        logger.info("Turno %s resposta completa (%d chars): %r", turn_id, len(full_text), full_text)
         self._short_term.add("user", user_text)
         self._short_term.add("assistant", full_text)
         self._playback.mark_no_more_chunks(turn_id)
         self._bus.publish(LLMDone(turn_id=turn_id, full_text=full_text))
-        await self._apply_transition(LLMDone(turn_id=turn_id, full_text=full_text))
+
+        if sentence_id == 0:
+            # Resposta realmente vazia (nenhuma sentenca gerada) -- nao ha
+            # nenhum TTSAudioChunkReady vindo por ai pra tirar a FSM de
+            # THINKING, entao aplicamos essa transicao explicitamente aqui.
+            #
+            # Quando HA sentencas (o caso comum), NAO aplicamos a transicao:
+            # a FSM deve continuar em THINKING ate o primeiro audio de
+            # verdade ficar pronto (THINKING -> SPEAKING via
+            # TTSAudioChunkReady) e so volta a IDLE quando o playback
+            # esvaziar de fato (playback_naturally_stopped). Aplicar LLMDone
+            # incondicionalmente aqui jogava a FSM de volta pra IDLE assim
+            # que o texto terminava de gerar -- que pode ser BEM antes da
+            # sintese de TTS (que roda em paralelo, sentenca por sentenca)
+            # terminar. Uma vez em IDLE, todo TTSAudioChunkReady seguinte
+            # cai num estado sem transicao mapeada e e descartado
+            # silenciosamente (no-op por design) -- essa era a causa raiz de
+            # "nunca sai audio nenhum", independente de Kokoro/Bluetooth/etc.
+            await self._apply_transition(LLMDone(turn_id=turn_id, full_text=full_text))
 
     async def _resolve_token_source(
         self, messages: list[dict], tools_schema: list[dict] | None

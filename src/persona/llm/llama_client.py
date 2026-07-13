@@ -36,6 +36,7 @@ class LlamaClient:
         max_tokens: int = 512,
         temperature: float = 0.7,
         tools: list[dict] | None = None,
+        enable_thinking: bool = False,
     ) -> AsyncGenerator[str, None]:
         payload: dict = {
             "model": self.model_name,
@@ -43,6 +44,18 @@ class LlamaClient:
             "max_tokens": max_tokens,
             "temperature": temperature,
             "stream": True,
+            # Qwen3 suporta um modo de raciocinio estendido (bloco <think>...
+            # </think> antes da resposta) controlado pelo proprio chat
+            # template via essa flag. Desligado por padrao: (1) um
+            # assistente de voz nao deveria falar o raciocinio interno em
+            # voz alta, (2) o bloco de pensamento pode consumir a maior
+            # parte de `max_tokens` e deixar pouco ou nada pra resposta de
+            # verdade, o que se parece exatamente com "resposta pela
+            # metade/confusa". Requer llama-server recente o suficiente pra
+            # repassar `chat_template_kwargs` pro template Jinja -- se a
+            # versao for antiga, isso e ignorado silenciosamente (nao quebra
+            # nada, so nao tem efeito).
+            "chat_template_kwargs": {"enable_thinking": enable_thinking},
         }
         if tools:
             payload["tools"] = tools
@@ -78,6 +91,7 @@ class LlamaClient:
         max_tokens: int = 512,
         temperature: float = 0.7,
         tools: list[dict] | None = None,
+        enable_thinking: bool = False,
     ) -> dict:
         """Chamada nao-streaming; usada so na primeira volta do tool-calling,
         onde precisamos inspecionar `tool_calls` antes de decidir se a
@@ -88,6 +102,7 @@ class LlamaClient:
             "max_tokens": max_tokens,
             "temperature": temperature,
             "stream": False,
+            "chat_template_kwargs": {"enable_thinking": enable_thinking},
         }
         if tools:
             payload["tools"] = tools

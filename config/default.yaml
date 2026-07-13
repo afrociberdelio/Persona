@@ -27,7 +27,7 @@ stt:
 
 llm:
   base_url: http://127.0.0.1:8080
-  model_name: qwen3-8b-instruct-q4_k_m
+  model_name: qwen3-8b-q4_k_m
   context_size: 6144
   parallel_slots: 2 # 1 para conversa ao vivo, 1 reservado para consolidacao de memoria
   max_tokens_per_turn: 512

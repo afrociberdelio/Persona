@@ -1,4 +1,5 @@
-# Sobe o llama-server (llama.cpp, build CUDA) com o Qwen3-8B-Instruct GGUF.
+# Sobe o llama-server (llama.cpp, build CUDA) com o Qwen3-8B GGUF (texto
+# puro -- nao usar a variante Qwen3-VL, ver scripts/install_models.py).
 #
 # Pre-requisito: llama.cpp compilado com suporte CUDA para Windows, com
 # llama-server.exe em $LlamaServerExe (ajuste o caminho abaixo) ou no PATH.
@@ -9,11 +10,16 @@
 
 param(
     [string]$LlamaServerExe = "llama-server.exe",
-    [string]$ModelPath = "$PSScriptRoot\..\models\qwen3-8b-instruct-q4_k_m.gguf",
+    [string]$ModelPath = "$PSScriptRoot\..\models\Qwen3-8B-Q4_K_M.gguf",
     [int]$Port = 8080,
     [int]$ContextSize = 6144,
     [int]$Parallel = 2,
-    [int]$NGpuLayers = 999
+    [int]$NGpuLayers = 999,
+    # Builds recentes do llama.cpp trocaram --flash-attn de flag booleana
+    # para exigir um valor (on/off/auto). Se seu build for mais antigo e
+    # reclamar de argumento inesperado, edite este script e volte para
+    # `--flash-attn` sem valor (flag booleana).
+    [string]$FlashAttn = "on"
 )
 
 if (-not (Test-Path $ModelPath)) {
@@ -28,4 +34,4 @@ if (-not (Test-Path $ModelPath)) {
     --ctx-size $ContextSize `
     --parallel $Parallel `
     --n-gpu-layers $NGpuLayers `
-    --flash-attn
+    --flash-attn $FlashAttn

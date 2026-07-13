@@ -48,6 +48,7 @@ class SynthesisQueue:
         return task
 
     async def _run(self, turn_id: str, sentence_id: int, text: str, on_ready: OnChunkReady) -> None:
+        logger.info("Fila TTS: iniciando sintese da sentenca %d do turno %s", sentence_id, turn_id)
         try:
             pcm, sample_rate = await self._engine.synthesize(text, voice=self.voice, speed=self.speed)
         except asyncio.CancelledError:
@@ -57,7 +58,12 @@ class SynthesisQueue:
             return
 
         if turn_id != self._current_turn_id:
-            logger.debug("Descartando audio sintetizado de turno obsoleto %s", turn_id)
+            logger.info(
+                "Fila TTS: descartando audio da sentenca %d -- turno %s nao e mais o atual (atual=%s)",
+                sentence_id,
+                turn_id,
+                self._current_turn_id,
+            )
             return
 
         on_ready(turn_id, sentence_id, pcm, sample_rate)
