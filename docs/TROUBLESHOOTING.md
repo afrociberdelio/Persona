@@ -4,6 +4,55 @@ Issues reais encontrados e corrigidos durante o desenvolvimento deste
 projeto — deixados aqui porque podem reaparecer em setups diferentes (outra
 versao de lib, outro SO, etc).
 
+## Nenhum audio sai, mesmo com STT/LLM/TTS funcionando perfeitamente nos logs (causa raiz principal)
+
+Esse foi o bug mais dificil de achar do projeto -- o pipeline inteiro
+funcionava (transcricao certa, resposta do LLM coerente, sintese do Kokoro
+rapida e sem erro), mas nenhum audio saia, sem excecao nenhuma em lugar
+nenhum.
+
+Causa: `persona/coordinator/orchestrator.py` chama
+`playback.mark_no_more_chunks(turn_id)` assim que o LLM termina de
+**gerar o texto** -- o que costuma acontecer bem antes da sintese de TTS de
+cada sentenca (assincrona, em paralelo, uma por vez) realmente terminar.
+Em `AudioPlayback._callback` (`persona/audio/playback.py`), a condicao de
+"turno terminou naturalmente" so checava `buffer vazio + no_more_chunks`,
+sem saber se algum audio JA tinha sido enfileirado alguma vez. Resultado:
+no primeiro callback de audio depois de `mark_no_more_chunks()`, com o
+buffer ainda vazio (nenhuma sentenca tinha terminado de sintetizar ainda),
+a condicao disparava na hora -- resetando `_current_turn_id` pra `None`
+*antes* de qualquer audio real chegar. Todo `enqueue()` das sentencas que
+terminavam de sintetizar depois disso era descartado silenciosamente
+(o `turn_id` nao batia mais com o turno atual), sem log visivel (era
+`logger.debug`, nao `INFO`).
+
+Sintoma no log (se voce tiver o logging de FSM ativo): a linha
+`FSM: THINKING + playback_naturally_stopped -> THINKING` aparece **antes**
+de qualquer `Kokoro: sintese concluida` para aquele turno -- esse e o
+tell-tale sign de que o turno "fechou" antes de qualquer audio existir.
+
+Corrigido rastreando explicitamente `_any_chunk_enqueued` em
+`AudioPlayback`: o "terminou naturalmente" so pode disparar depois que
+pelo menos um chunk de audio de verdade foi enfileirado E o buffer esvaziou
+de fato. Regressao coberta em `tests/unit/test_audio_playback.py` (4 dos 5
+testes falham se essa condicao voltar a ignorar `_any_chunk_enqueued`).
+
+Bug irmao, na mesma familia: `orchestrator.py` tambem aplicava a transicao
+de FSM `LLMDone -> IDLE` incondicionalmente pelo mesmo motivo (texto
+terminando antes do audio) -- uma vez em `IDLE`, todo `TTSAudioChunkReady`
+subsequente cai num estado sem transicao mapeada e e descartado (no-op por
+design da maquina de estados). Corrigido: essa transicao so e aplicada
+quando a resposta gerou zero sentencas (caso realmente vazio); quando ha
+sentencas, a FSM fica em `THINKING` ate o primeiro audio real via
+`TTSAudioChunkReady` (`THINKING -> SPEAKING`). Regressao em
+`tests/unit/test_orchestrator_tts_timing.py`.
+
+Licao geral: qualquer sinal de "terminou"/"nao tem mais nada vindo" que
+depende do LLM terminar de **gerar texto** precisa ser tratado como
+independente de "toda a sintese de audio associada a esse texto tambem
+terminou" -- sao dois processos assincronos concorrentes, e o texto quase
+sempre termina primeiro.
+
 ## O modelo "repete" frases que voce falou em vez de responder
 
 Sintoma: a conversa flui (STT transcreve certo, TTS fala normalmente), mas

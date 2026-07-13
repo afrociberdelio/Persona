@@ -41,6 +41,7 @@ class AudioPlayback:
         self._buffer: list[np.ndarray] = []
         self._current_turn_id: str | None = None
         self._no_more_chunks = False
+        self._any_chunk_enqueued = False
 
         self._loop: asyncio.AbstractEventLoop | None = None
         self._stream: sd.OutputStream | None = None
@@ -72,6 +73,7 @@ class AudioPlayback:
             self._buffer.clear()
             self._current_turn_id = turn_id
             self._no_more_chunks = False
+            self._any_chunk_enqueued = False
 
     def enqueue(self, pcm: np.ndarray, turn_id: str) -> None:
         """Enfileira audio para tocar. Descartado silenciosamente se `turn_id`
@@ -86,6 +88,7 @@ class AudioPlayback:
             # dimensao errada e corrompe o preenchimento do buffer -- ver
             # docs/TROUBLESHOOTING.md.
             self._buffer.append(np.asarray(pcm, dtype=np.float32).reshape(-1))
+            self._any_chunk_enqueued = True
 
     def mark_no_more_chunks(self, turn_id: str) -> None:
         """LLM+TTS sinalizaram que nao ha mais sentencas para este turno."""
@@ -99,6 +102,7 @@ class AudioPlayback:
             self._buffer.clear()
             self._current_turn_id = None
             self._no_more_chunks = False
+            self._any_chunk_enqueued = False
         logger.info("Playback interrompido (%s)", reason)
 
     def _callback(self, outdata: np.ndarray, frames: int, time_info, status) -> None:
@@ -121,10 +125,21 @@ class AudioPlayback:
             outdata[:, 0] = out
 
             drained = not self._buffer
-            if drained and self._no_more_chunks and self._current_turn_id is not None:
+            # `_any_chunk_enqueued` e essencial aqui: sem ele, o buffer
+            # comeca vazio por padrao, e se `mark_no_more_chunks()` for
+            # chamado antes do PRIMEIRO chunk de audio chegar (comum -- o
+            # LLM termina de gerar texto rapido, mas a sintese de TTS de
+            # cada sentenca ainda esta rodando em paralelo), essa condicao
+            # disparava na hora, resetando `_current_turn_id` pra None
+            # antes de qualquer audio real ser enfileirado. Todo
+            # `enqueue()` seguinte pra esse turno via entao descartado
+            # silenciosamente (turn_id nao bate mais) -- causa raiz real de
+            # "nunca sai audio nenhum" mesmo com a sintese funcionando.
+            if drained and self._no_more_chunks and self._any_chunk_enqueued and self._current_turn_id is not None:
                 fire_natural_stop = self._current_turn_id
                 self._current_turn_id = None
                 self._no_more_chunks = False
+                self._any_chunk_enqueued = False
 
         if fire_natural_stop is not None and self._on_naturally_stopped is not None and self._loop is not None:
             self._loop.call_soon_threadsafe(self._on_naturally_stopped, fire_natural_stop)

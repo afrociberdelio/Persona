@@ -4,8 +4,8 @@
 # (gitignored) ou variaveis de ambiente PERSONA_*.
 
 audio:
-  input_device: null # null = dispositivo padrao do sistema
-  output_device: null
+  input_device: 1 # null = dispositivo padrao do sistema
+  output_device: 4
   sample_rate: 16000
   frame_ms: 32 # ~512 amostras @16kHz -- tamanho de chunk recomendado pelo Silero VAD
 
