@@ -4,6 +4,55 @@ Issues reais encontrados e corrigidos durante o desenvolvimento deste
 projeto — deixados aqui porque podem reaparecer em setups diferentes (outra
 versao de lib, outro SO, etc).
 
+## Ferramentas MCP de arquivos/web (`filesystem`, `puppeteer`) não conectam
+
+Esses dois servidores rodam via `npx` (Node.js), não Python — pré-requisito
+que não existia nas fases anteriores do projeto. Confirme:
+
+```powershell
+npx --version
+```
+
+Se não estiver instalado, baixe o Node.js LTS em nodejs.org. `main.py` já
+trata falha de conexão de um servidor MCP individualmente (loga e segue
+sem aquela ferramenta, não derruba o Persona inteiro) — se só uma das
+ferramentas não aparecer, confira o log de startup pela mensagem "Falha ao
+conectar servidor MCP".
+
+Nomes de pacote npm no ecossistema MCP mudam de organização/nome de vez em
+quando — se `@modelcontextprotocol/server-filesystem` ou
+`@modelcontextprotocol/server-puppeteer` derem 404, procure o nome atual no
+registro npm ou no repositório de servidores MCP de referência.
+
+## Risco de segurança: terminal + navegação web juntos
+
+O servidor `shell` (`persona/tools/shell_tool.py`) exige confirmação em
+duas etapas (`propose_shell_command` → `confirm_shell_command`) antes de
+executar qualquer comando — a confirmação só pode vir de uma fala *nova*
+do usuário (turno seguinte), nunca do mesmo turno em que o comando foi
+proposto, porque ferramentas MCP só são despachadas dentro de
+`_run_llm_turn`, que só roda depois de um `STTFinal` real vindo do
+microfone.
+
+Isso reduz mas não elimina o risco de **prompt injection indireto**: como o
+`puppeteer` traz conteúdo de páginas web pro contexto do LLM, uma página
+maliciosa poderia conter texto tentando convencer o modelo a propor um
+comando perigoso — a confirmação por voz ainda depende de você prestar
+atenção ao que o assistente está pedindo pra confirmar, não é uma trava
+automática. Se algo pedir confirmação pra um comando que você não esperava,
+não confirme.
+
+## Known Folders do Windows resolvidos errado (ferramenta de arquivos sem acesso a Documentos/Desktop/Downloads)
+
+`persona/main.py::_known_folder_path` usa a API `SHGetKnownFolderPath` do
+Windows (via `ctypes`) em vez de supor `Path.home() / "Documents"` etc. —
+isso é necessario porque Windows localizado (PT-BR usa "Documentos"/"Área
+de Trabalho") e redirecionamento de pastas pelo OneDrive fazem esses
+caminhos literais não existirem de verdade em muitas instalações. Se o log
+de startup mostrar "Pasta 'X' não encontrada", confira no Explorador de
+Arquivos se essa pasta tem um local customizado (clique direito → Propriedades →
+aba Local) e ajuste manualmente se for um caso atípico não coberto pela API.
+
 ## Nenhum audio sai, mesmo com STT/LLM/TTS funcionando perfeitamente nos logs (causa raiz principal)
 
 Esse foi o bug mais dificil de achar do projeto -- o pipeline inteiro

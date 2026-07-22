@@ -30,7 +30,7 @@ llm:
   model_name: qwen3-8b-q4_k_m
   context_size: 6144
   parallel_slots: 2 # 1 para conversa ao vivo, 1 reservado para consolidacao de memoria
-  max_tokens_per_turn: 512
+  max_tokens_per_turn: 180 # respostas de voz curtas -- tambem reduz a latencia de pior caso do turno
   temperature: 0.7
   request_timeout_s: 30
 
@@ -52,7 +52,25 @@ memory:
   embedder_model: sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2
 
 tools:
-  mcp_servers: [] # populado nas fases futuras
+  # Requer Node.js + npx instalados na maquina (`npx --version`) para os
+  # servidores filesystem/puppeteer, que rodam via npx -- ver
+  # docs/TROUBLESHOOTING.md se a conexao falhar.
+  mcp_servers:
+    - name: filesystem
+      command: npx
+      # As pastas permitidas (Documentos/Desktop/Downloads) sao anexadas
+      # aqui em tempo de execucao por persona/main.py via pathlib.Path.home()
+      # -- nao hardcoded, pra nao depender do nome de usuario do Windows
+      # (ja tivemos problema nesta sessao com isso: "Mikael" vs "mikae").
+      args: ["-y", "@modelcontextprotocol/server-filesystem"]
+    - name: puppeteer
+      command: npx
+      args: ["-y", "@modelcontextprotocol/server-puppeteer"]
+    - name: shell
+      # Terminal com confirmacao obrigatoria antes de executar -- ver
+      # persona/tools/shell_tool.py (propose_shell_command / confirm_shell_command).
+      command: uv
+      args: ["run", "python", "-m", "persona.tools.shell_tool"]
 
 logging:
   level: INFO

@@ -19,7 +19,15 @@ param(
     # para exigir um valor (on/off/auto). Se seu build for mais antigo e
     # reclamar de argumento inesperado, edite este script e volte para
     # `--flash-attn` sem valor (flag booleana).
-    [string]$FlashAttn = "on"
+    [string]$FlashAttn = "on",
+    # Quantiza o KV cache (q8_0 = ~metade da VRAM do cache vs f16 padrao,
+    # perda de qualidade praticamente imperceptivel; q4_0 economiza mais
+    # mas degrada mais). SO funciona com --flash-attn ligado (ja e o
+    # default acima). Motivo de mexer nisso: libera VRAM pro Kokoro/Whisper
+    # dividirem a GPU com folga, e reduz um pouco a banda de memoria usada
+    # por token gerado.
+    [string]$CacheTypeK = "q8_0",
+    [string]$CacheTypeV = "q8_0"
 )
 
 if (-not (Test-Path $ModelPath)) {
@@ -34,4 +42,6 @@ if (-not (Test-Path $ModelPath)) {
     --ctx-size $ContextSize `
     --parallel $Parallel `
     --n-gpu-layers $NGpuLayers `
-    --flash-attn $FlashAttn
+    --flash-attn $FlashAttn `
+    --cache-type-k $CacheTypeK `
+    --cache-type-v $CacheTypeV

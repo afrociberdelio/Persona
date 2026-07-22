@@ -7,7 +7,9 @@ ate ser interrompido (Ctrl+C) ou morto pelo supervisor (scripts/supervisor.py).
 from __future__ import annotations
 
 import asyncio
+import ctypes
 import logging
+from pathlib import Path
 
 from persona.audio.capture import AudioCapture
 from persona.audio.playback import AudioPlayback
@@ -32,6 +34,53 @@ logger = logging.getLogger(__name__)
 
 async def _log_partial(text: str) -> None:
     logger.info("[preview STT, fala longa] %s", text)
+
+
+class _GUID(ctypes.Structure):
+    _fields_ = [
+        ("Data1", ctypes.c_uint32),
+        ("Data2", ctypes.c_uint16),
+        ("Data3", ctypes.c_uint16),
+        ("Data4", ctypes.c_ubyte * 8),
+    ]
+
+
+_KNOWN_FOLDER_GUIDS = {
+    "documents": "{FDD39AD0-238F-46AF-ADB4-6C85480369C7}",
+    "desktop": "{B4BFCC3A-DB2C-424C-B029-7FE99A87C641}",
+    "downloads": "{374DE290-123F-4565-9164-39C4925E467B}",
+}
+
+
+def _known_folder_path(name: str) -> Path | None:
+    """Resolve o caminho real de uma "known folder" do Windows (Documentos/
+    Desktop/Downloads) via SHGetKnownFolderPath, em vez de supor nomes de
+    pasta literais em ingles -- Windows localizado (ex: PT-BR usa
+    "Documentos"/"Area de Trabalho") e redirecionamento pelo OneDrive
+    fariam um caminho tipo `home / "Documents"` nao existir de verdade."""
+    guid = _GUID()
+    if ctypes.windll.ole32.CLSIDFromString(_KNOWN_FOLDER_GUIDS[name], ctypes.byref(guid)) != 0:
+        return None
+    path_ptr = ctypes.c_wchar_p()
+    result = ctypes.windll.shell32.SHGetKnownFolderPath(ctypes.byref(guid), 0, 0, ctypes.byref(path_ptr))
+    if result != 0 or not path_ptr.value:
+        return None
+    path = Path(path_ptr.value)
+    ctypes.windll.ole32.CoTaskMemFree(path_ptr)
+    return path
+
+
+def _filesystem_allowed_dirs() -> list[str]:
+    dirs: list[str] = []
+    for name in ("documents", "desktop", "downloads"):
+        path = _known_folder_path(name)
+        if path is not None and path.exists():
+            dirs.append(str(path))
+        else:
+            logger.warning(
+                "Pasta '%s' nao encontrada -- ferramenta de arquivos nao tera acesso a ela", name
+            )
+    return dirs
 
 
 async def build_orchestrator(cfg) -> DialogueOrchestrator:
@@ -84,9 +133,21 @@ async def build_orchestrator(cfg) -> DialogueOrchestrator:
 
     tool_registry = ToolRegistry()
     for server_cfg in getattr(cfg.tools, "mcp_servers", []) or []:
-        await tool_registry.add_server(
-            name=server_cfg["name"], command=server_cfg["command"], args=server_cfg.get("args", [])
-        )
+        args = list(server_cfg.get("args", []))
+        if server_cfg["name"] == "filesystem":
+            # Pastas permitidas resolvidas em runtime (nao hardcoded no
+            # YAML) -- ver _filesystem_allowed_dirs.
+            allowed_dirs = _filesystem_allowed_dirs()
+            if not allowed_dirs:
+                logger.warning("Nenhuma pasta resolvida para o servidor 'filesystem' -- pulando registro")
+                continue
+            args += allowed_dirs
+        try:
+            await tool_registry.add_server(name=server_cfg["name"], command=server_cfg["command"], args=args)
+        except Exception:
+            logger.exception(
+                "Falha ao conectar servidor MCP '%s' -- seguindo sem essa ferramenta", server_cfg["name"]
+            )
 
     return DialogueOrchestrator(
         capture=capture,
