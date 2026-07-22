@@ -265,6 +265,19 @@ class DialogueOrchestrator:
         except asyncio.CancelledError:
             self._bus.publish(LLMCancelled(turn_id=turn_id, reason="barge_in"))
             raise
+        except Exception:
+            # Sem isso, qualquer erro aqui (ex: llama-server retornando 400
+            # por causa de um schema de ferramenta que ele nao consegue
+            # converter em grammar -- caso real que motivou isso) deixava a
+            # FSM presa em THINKING pra sempre: nada mais dispara o LLMDone
+            # que leva de volta a IDLE, e o unico jeito de "destravar" era
+            # um barge-in manual. Com ferramentas MCP em jogo (payloads
+            # maiores, mais coisa que pode dar errado), isso deixou de ser
+            # um caso raro o suficiente pra ignorar.
+            logger.exception("Turno %s: falha ao gerar resposta do LLM", turn_id)
+            self._playback.stop_immediately(reason="llm_error")
+            await self._apply_transition(LLMDone(turn_id=turn_id, full_text=""))
+            return
 
         timer.mark("llm_done")
         logger.info("Turno %s resposta completa (%d chars): %r", turn_id, len(full_text), full_text)

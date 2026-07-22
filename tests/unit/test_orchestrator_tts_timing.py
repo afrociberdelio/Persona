@@ -31,6 +31,15 @@ class FakeLlamaClient:
             yield token
 
 
+class RaisingLlamaClient:
+    """Simula uma falha de rede/HTTP (ex: 400 do llama-server) durante a
+    geracao -- usado pra provar que isso nao deixa a FSM presa."""
+
+    async def stream_chat(self, messages, max_tokens=512, temperature=0.7, tools=None, **kwargs):
+        raise RuntimeError("simulated llama-server error")
+        yield  # inalcancavel -- so pra manter a funcao um async generator
+
+
 class FakeSynthesisQueue:
     """`submit` só enfileira -- quem decide quando a síntese "termina" é o
     teste, chamando `complete_all()` explicitamente. Isso simula o caso
@@ -147,6 +156,22 @@ async def test_empty_response_still_returns_to_idle():
 
     assert orchestrator._fsm.state is TurnState.IDLE
     assert playback.enqueued == []
+
+
+@pytest.mark.asyncio
+async def test_llm_error_returns_to_idle_instead_of_getting_stuck():
+    """Regressao: um erro generico durante a geracao (ex: 400 do
+    llama-server por causa de um schema de ferramenta MCP, timeout de
+    rede) nao pode deixar a FSM presa em THINKING pra sempre -- antes desta
+    correcao, so um barge-in manual do usuario destravava."""
+    orchestrator, _synth_queue, playback = _build_orchestrator([])
+    orchestrator._llm_client = RaisingLlamaClient()
+
+    orchestrator._fsm.state = TurnState.TRANSCRIBING
+    await orchestrator._apply_transition(STTFinal(utterance_id="u1", text="oi", duration_s=1.0))
+    await orchestrator._llm_task
+
+    assert orchestrator._fsm.state is TurnState.IDLE
 
 
 async def _yield() -> None:

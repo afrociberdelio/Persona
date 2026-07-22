@@ -65,6 +65,18 @@ class LlamaClient:
             async with client.stream(
                 "POST", f"{self.base_url}/v1/chat/completions", json=payload
             ) as response:
+                if response.status_code >= 400:
+                    # Sem isso, um 400 (ex: schema de ferramenta que o
+                    # llama-server nao consegue converter em grammar) so
+                    # aparecia como "400 Bad Request" generico -- sem o
+                    # corpo da resposta, que costuma dizer exatamente qual
+                    # campo/ferramenta o servidor rejeitou.
+                    body = await response.aread()
+                    logger.error(
+                        "llama-server retornou %d em stream_chat: %s",
+                        response.status_code,
+                        body.decode(errors="replace")[:2000],
+                    )
                 response.raise_for_status()
                 async for line in response.aiter_lines():
                     if not line or not line.startswith("data:"):
@@ -109,6 +121,16 @@ class LlamaClient:
 
         async with httpx.AsyncClient(timeout=httpx.Timeout(self.request_timeout_s)) as client:
             response = await client.post(f"{self.base_url}/v1/chat/completions", json=payload)
+            if response.status_code >= 400:
+                # Ver comentario equivalente em stream_chat -- sem logar o
+                # corpo, um 400 aqui (ex: schema de ferramenta que o
+                # llama-server nao converte em grammar) so aparece como
+                # "400 Bad Request" sem dizer o motivo real.
+                logger.error(
+                    "llama-server retornou %d em chat_once: %s",
+                    response.status_code,
+                    response.text[:2000],
+                )
             response.raise_for_status()
             data = response.json()
             return data["choices"][0]["message"]
