@@ -12,7 +12,16 @@ param(
     [string]$LlamaServerExe = "llama-server.exe",
     [string]$ModelPath = "$PSScriptRoot\..\models\Qwen3-8B-Q4_K_M.gguf",
     [int]$Port = 8080,
-    [int]$ContextSize = 6144,
+    # --ctx-size e o TOTAL dividido entre os slots (--parallel) -- com 2
+    # slots, cada um recebe metade disso. Aumentado de 6144 pra 12288
+    # (6144/slot) porque os schemas das ferramentas MCP (23 no total, entre
+    # filesystem/puppeteer/shell) por si so custam ~2000+ tokens de prompt
+    # por chamada -- com 3072/slot (valor antigo) isso estourava o contexto
+    # (erro "exceeds the available context size") assim que memoria/system
+    # prompt entravam na conta. O --cache-type-k/-v q8_0 abaixo compensa boa
+    # parte da VRAM extra que isso consome (mesma ordem de grandeza da
+    # config original antes de ferramentas existirem).
+    [int]$ContextSize = 12288,
     [int]$Parallel = 2,
     [int]$NGpuLayers = 999,
     # Builds recentes do llama.cpp trocaram --flash-attn de flag booleana

@@ -70,17 +70,44 @@ def _known_folder_path(name: str) -> Path | None:
     return path
 
 
-def _filesystem_allowed_dirs() -> list[str]:
-    dirs: list[str] = []
+_FOLDER_LABELS = {
+    "documents": "Documentos",
+    "desktop": "Área de Trabalho",
+    "downloads": "Downloads",
+}
+
+
+def _filesystem_allowed_dirs() -> list[tuple[str, str]]:
+    """Retorna [(rotulo, caminho_absoluto), ...] pras pastas resolvidas.
+
+    O rotulo (nome em portugues, o jeito que o usuario provavelmente vai se
+    referir a pasta por voz) e emparelhado com o caminho real -- sem isso o
+    LLM so sabe o NOME das pastas permitidas, nao o caminho de disco, e fica
+    adivinhando um caminho a cada chamada de ferramenta (quase sempre
+    errado, rejeitado pelo servidor MCP de arquivos por estar fora do
+    permitido). Ver `build_orchestrator` -- isso vira parte do system prompt.
+    """
+    dirs: list[tuple[str, str]] = []
     for name in ("documents", "desktop", "downloads"):
         path = _known_folder_path(name)
         if path is not None and path.exists():
-            dirs.append(str(path))
+            dirs.append((_FOLDER_LABELS[name], str(path)))
         else:
             logger.warning(
                 "Pasta '%s' nao encontrada -- ferramenta de arquivos nao tera acesso a ela", name
             )
     return dirs
+
+
+def _format_filesystem_dirs_note(dirs: list[tuple[str, str]]) -> str:
+    if not dirs:
+        return ""
+    listed = "; ".join(f'{label} = "{path}"' for label, path in dirs)
+    return (
+        "Pastas de arquivo permitidas e seus caminhos absolutos reais -- use "
+        f"esses caminhos exatos nas ferramentas de arquivo, nunca adivinhe um "
+        f"caminho: {listed}."
+    )
 
 
 async def build_orchestrator(cfg) -> DialogueOrchestrator:
@@ -132,6 +159,7 @@ async def build_orchestrator(cfg) -> DialogueOrchestrator:
     consolidator = MemoryConsolidator(llm_client, profile_store, episodic_store, embedder)
 
     tool_registry = ToolRegistry()
+    filesystem_dirs_note = ""
     for server_cfg in getattr(cfg.tools, "mcp_servers", []) or []:
         args = list(server_cfg.get("args", []))
         if server_cfg["name"] == "filesystem":
@@ -141,7 +169,8 @@ async def build_orchestrator(cfg) -> DialogueOrchestrator:
             if not allowed_dirs:
                 logger.warning("Nenhuma pasta resolvida para o servidor 'filesystem' -- pulando registro")
                 continue
-            args += allowed_dirs
+            args += [path for _, path in allowed_dirs]
+            filesystem_dirs_note = _format_filesystem_dirs_note(allowed_dirs)
         try:
             await tool_registry.add_server(name=server_cfg["name"], command=server_cfg["command"], args=args)
         except Exception:
@@ -150,6 +179,7 @@ async def build_orchestrator(cfg) -> DialogueOrchestrator:
             )
 
     return DialogueOrchestrator(
+        extra_system_prompt=filesystem_dirs_note,
         capture=capture,
         playback=playback,
         vad=vad,

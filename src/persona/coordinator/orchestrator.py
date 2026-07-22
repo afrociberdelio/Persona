@@ -93,6 +93,7 @@ class DialogueOrchestrator:
         llm_temperature: float = 0.7,
         episodic_top_k: int = 4,
         idle_consolidation_delay_s: float = 8.0,
+        extra_system_prompt: str = "",
     ) -> None:
         self._capture = capture
         self._playback = playback
@@ -112,6 +113,14 @@ class DialogueOrchestrator:
         self._llm_temperature = llm_temperature
         self._episodic_top_k = episodic_top_k
         self._idle_consolidation_delay_s = idle_consolidation_delay_s
+
+        # `extra_system_prompt` carrega info especifica da maquina (ex: os
+        # caminhos absolutos reais das pastas permitidas na ferramenta de
+        # arquivos) que nao da pra saber em tempo de escrita do prompt base
+        # -- sem isso o LLM so conhece o NOME das pastas, nao o caminho de
+        # disco, e fica adivinhando (quase sempre errado) a cada chamada de
+        # ferramenta de arquivo.
+        self._system_prompt = _SYSTEM_PROMPT + (f" {extra_system_prompt}" if extra_system_prompt else "")
 
         self._bus = EventBus()
         self._fsm = TurnStateMachine()
@@ -226,7 +235,7 @@ class DialogueOrchestrator:
         episodic_snippets = self._episodic_store.search(query_vector, top_k=self._episodic_top_k)
 
         ctx = PromptContext(
-            system_prompt=_SYSTEM_PROMPT,
+            system_prompt=self._system_prompt,
             user_utterance=user_text,
             profile_summary=profile_summary,
             episodic_snippets=episodic_snippets,

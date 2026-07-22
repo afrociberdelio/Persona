@@ -4,6 +4,34 @@ Issues reais encontrados e corrigidos durante o desenvolvimento deste
 projeto — deixados aqui porque podem reaparecer em setups diferentes (outra
 versao de lib, outro SO, etc).
 
+## `llama-server` retorna 400 `exceed_context_size_error` depois de adicionar ferramentas MCP
+
+Log: `request (NNNN tokens) exceeds the available context size (3072 tokens)`.
+
+Causa: `--ctx-size` no `run_llama_server.ps1` e o TOTAL dividido entre os
+slots (`--parallel`), nao por slot. Com `--ctx-size 6144 --parallel 2`,
+cada slot so tinha 3072 tokens. Os schemas JSON das ferramentas MCP contam
+como tokens de prompt em toda chamada -- com as 23 ferramentas registradas
+nesta sessao (filesystem + puppeteer + shell), so os schemas ja consomem
+uma fatia grande desse orcamento (estimado 2000-3000+ tokens), sobrando
+pouco pro system prompt + memoria + fala do usuario.
+
+Corrigido subindo `--ctx-size` pra 12288 (6144/slot) e reduzindo
+`llm.context_size` no `config/default.yaml` (o orcamento que o *nosso*
+`PromptBuilder` usa pra decidir quantos turnos de curto prazo/trechos
+episodicos incluir) pra 3000, deixando espaco pro que o llama-server
+realmente precisa alem das nossas mensagens (schemas de ferramentas +
+`max_tokens_per_turn` de geracao).
+
+Se isso ainda estourar conforme a conversa cresce (mais turnos de memoria
+de curto prazo acumulando), os proximos ajustes, nesta ordem: (1) subir
+`--ctx-size` mais um pouco (atencao ao uso de VRAM via `nvidia-smi` -- o
+KV cache quantizado em q8_0 ajuda mas nao e de graca), (2) reduzir
+`llm.context_size` ainda mais, (3) expor menos ferramentas de uma vez --
+nem todas as 14 do filesystem sao essenciais pro dia a dia (`read_media_file`,
+`list_directory_with_sizes`, `directory_tree`, `list_allowed_directories`,
+`read_multiple_files` sao as candidatas mais faceis de cortar se precisar).
+
 ## Ferramentas MCP de arquivos/web (`filesystem`, `puppeteer`) não conectam
 
 Esses dois servidores rodam via `npx` (Node.js), não Python — pré-requisito

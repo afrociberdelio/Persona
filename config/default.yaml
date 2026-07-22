@@ -28,7 +28,9 @@ stt:
 llm:
   base_url: http://127.0.0.1:8080
   model_name: qwen3-8b-q4_k_m
-  context_size: 6144
+  context_size: 3000 # orcamento pro NOSSO prompt (system+memoria+curto prazo); deixa espaco no
+                     # contexto do llama-server (agora 6144/slot) pros ~2000-3000 tokens que os
+                     # 23 schemas de ferramentas MCP custam sozinhos + max_tokens_per_turn de geracao
   parallel_slots: 2 # 1 para conversa ao vivo, 1 reservado para consolidacao de memoria
   max_tokens_per_turn: 180 # respostas de voz curtas -- tambem reduz a latencia de pior caso do turno
   temperature: 0.7
